@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gentleman-programming/gentle-ai/internal/components/rtk"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
 )
 
@@ -1059,5 +1060,138 @@ func TestRunSyncRollsBackOnFailure(t *testing.T) {
 	// If file exists, it must have valid JSON content (not corrupted).
 	if len(after) == 0 {
 		t.Errorf("settings file was truncated to empty after sync/rollback")
+	}
+}
+
+// ─── RTK sync tests ───────────────────────────────────────────────────────
+
+func TestComponentSyncStepRTKSkipsWhenBinaryAbsent(t *testing.T) {
+	home := t.TempDir()
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	// rtk is NOT on PATH — override both cli and rtk package lookPath.
+	cmdLookPath = func(name string) (string, error) {
+		return "", os.ErrNotExist
+	}
+	t.Cleanup(rtk.OverrideLookPath(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	}))
+
+	var commandsCalled []string
+	runCommand = func(name string, args ...string) error {
+		commandsCalled = append(commandsCalled, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	step := componentSyncStep{
+		id:        "sync:rtk",
+		component: model.ComponentRTK,
+		homeDir:   home,
+		agents:    []model.AgentID{model.AgentClaudeCode},
+		selection: model.Selection{},
+	}
+
+	if err := step.Run(); err != nil {
+		t.Fatalf("componentSyncStep.Run() RTK error = %v", err)
+	}
+
+	// No rtk commands should have been issued.
+	for _, cmd := range commandsCalled {
+		if strings.Contains(cmd, "rtk") {
+			t.Errorf("RTK sync must skip when binary absent, got command: %s", cmd)
+		}
+	}
+}
+
+func TestComponentSyncStepRTKRunsInitWhenBinaryPresent(t *testing.T) {
+	home := t.TempDir()
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	// rtk IS on PATH.
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+
+	var commandsCalled []string
+	runCommand = func(name string, args ...string) error {
+		commandsCalled = append(commandsCalled, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	step := componentSyncStep{
+		id:        "sync:rtk",
+		component: model.ComponentRTK,
+		homeDir:   home,
+		agents:    []model.AgentID{model.AgentCursor},
+		selection: model.Selection{},
+	}
+
+	if err := step.Run(); err != nil {
+		t.Fatalf("componentSyncStep.Run() RTK error = %v", err)
+	}
+
+	foundInit := false
+	for _, cmd := range commandsCalled {
+		if strings.Contains(cmd, "rtk init --agent cursor --auto-patch") {
+			foundInit = true
+			break
+		}
+	}
+	if !foundInit {
+		t.Fatalf("expected rtk init for cursor during sync, got commands: %v", commandsCalled)
+	}
+}
+
+func TestComponentSyncStepRTKDedupGlobalInit(t *testing.T) {
+	home := t.TempDir()
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+
+	var commandsCalled []string
+	runCommand = func(name string, args ...string) error {
+		commandsCalled = append(commandsCalled, name+" "+strings.Join(args, " "))
+		return nil
+	}
+
+	// Both Claude Code and VS Code Copilot use global init.
+	step := componentSyncStep{
+		id:        "sync:rtk",
+		component: model.ComponentRTK,
+		homeDir:   home,
+		agents:    []model.AgentID{model.AgentClaudeCode, model.AgentVSCodeCopilot},
+		selection: model.Selection{},
+	}
+
+	if err := step.Run(); err != nil {
+		t.Fatalf("componentSyncStep.Run() RTK error = %v", err)
+	}
+
+	globalCount := 0
+	for _, cmd := range commandsCalled {
+		if strings.Contains(cmd, "rtk init -g --auto-patch") {
+			globalCount++
+		}
+	}
+	if globalCount != 1 {
+		t.Fatalf("expected exactly 1 global rtk init during sync dedup, got %d; commands: %v",
+			globalCount, commandsCalled)
 	}
 }

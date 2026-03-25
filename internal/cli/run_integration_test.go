@@ -1452,3 +1452,272 @@ func TestRunInstallUpgradeIdempotency(t *testing.T) {
 			commandCount, engramJSON)
 	}
 }
+
+// --- Batch F: RTK component integration tests ---
+
+func TestRunInstallRTKResolvesBrewInstallOnMacOS(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cmdLookPath = missingBinaryLookPath
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	// Default detection = macOS with brew.
+	result, err := RunInstall(
+		[]string{"--agent", "claude-code", "--component", "rtk"},
+		system.DetectionResult{},
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	commands := recorder.get()
+	foundBrewInstall := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "brew install rtk") {
+			foundBrewInstall = true
+			break
+		}
+	}
+	if !foundBrewInstall {
+		t.Fatalf("expected brew install rtk command, got commands: %v", commands)
+	}
+}
+
+func TestRunInstallRTKResolvesCurlInstallOnLinux(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cmdLookPath = missingBinaryLookPath
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	detection := linuxDetectionResult(system.LinuxDistroUbuntu, "apt")
+	result, err := RunInstall(
+		[]string{"--agent", "claude-code", "--component", "rtk"},
+		detection,
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	commands := recorder.get()
+	foundCurlInstall := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "curl") && strings.Contains(cmd, "rtk") {
+			foundCurlInstall = true
+			break
+		}
+	}
+	if !foundCurlInstall {
+		t.Fatalf("expected curl install command for rtk on Linux, got commands: %v", commands)
+	}
+}
+
+func TestRunInstallRTKSkipsInstallWhenAlreadyOnPath(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	// rtk is already on PATH.
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	result, err := RunInstall(
+		[]string{"--agent", "claude-code", "--component", "rtk"},
+		system.DetectionResult{},
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	// No brew/curl install commands — only rtk init.
+	commands := recorder.get()
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "brew install rtk") || strings.Contains(cmd, "curl") {
+			t.Errorf("RTK already on PATH, should not install, got command: %s", cmd)
+		}
+	}
+
+	// Should still run rtk init.
+	foundInit := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "rtk init") {
+			foundInit = true
+			break
+		}
+	}
+	if !foundInit {
+		t.Fatalf("expected rtk init command even when binary already on PATH, got: %v", commands)
+	}
+}
+
+func TestRunInstallRTKRunsInitPerAgent(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	result, err := RunInstall(
+		[]string{"--agent", "cursor", "--agent", "gemini-cli", "--component", "rtk"},
+		system.DetectionResult{},
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	commands := recorder.get()
+	foundCursorInit := false
+	foundGeminiInit := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "rtk init --agent cursor --auto-patch") {
+			foundCursorInit = true
+		}
+		if strings.Contains(cmd, "rtk init --gemini --auto-patch") {
+			foundGeminiInit = true
+		}
+	}
+	if !foundCursorInit {
+		t.Fatalf("expected rtk init for cursor, got commands: %v", commands)
+	}
+	if !foundGeminiInit {
+		t.Fatalf("expected rtk init for gemini, got commands: %v", commands)
+	}
+}
+
+func TestRunInstallRTKGlobalInitForClaudeCode(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	result, err := RunInstall(
+		[]string{"--agent", "claude-code", "--component", "rtk"},
+		system.DetectionResult{},
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	commands := recorder.get()
+	foundGlobal := false
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "rtk init -g --auto-patch") {
+			foundGlobal = true
+			break
+		}
+	}
+	if !foundGlobal {
+		t.Fatalf("expected global rtk init (-g) for claude-code, got commands: %v", commands)
+	}
+}
+
+func TestRunInstallRTKGlobalInitDedupForClaudeAndVSCode(t *testing.T) {
+	home := t.TempDir()
+	restoreHome := osUserHomeDir
+	restoreCommand := runCommand
+	restoreLookPath := cmdLookPath
+	t.Cleanup(func() {
+		osUserHomeDir = restoreHome
+		runCommand = restoreCommand
+		cmdLookPath = restoreLookPath
+	})
+
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cmdLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/" + name, nil
+	}
+	recorder := &commandRecorder{}
+	runCommand = recorder.record
+
+	// Both Claude Code and VS Code Copilot share the global init.
+	result, err := RunInstall(
+		[]string{"--agent", "claude-code", "--agent", "vscode-copilot", "--component", "rtk"},
+		system.DetectionResult{},
+	)
+	if err != nil {
+		t.Fatalf("RunInstall() error = %v", err)
+	}
+	if !result.Verify.Ready {
+		t.Fatalf("Verify.Ready = false, report = %#v", result.Verify)
+	}
+
+	// Count global init invocations — should be exactly 1 (dedup).
+	commands := recorder.get()
+	globalCount := 0
+	for _, cmd := range commands {
+		if strings.Contains(cmd, "rtk init -g --auto-patch") {
+			globalCount++
+		}
+	}
+	if globalCount != 1 {
+		t.Fatalf("expected exactly 1 global rtk init (-g) for claude-code + vscode-copilot dedup, got %d; commands: %v",
+			globalCount, commands)
+	}
+}

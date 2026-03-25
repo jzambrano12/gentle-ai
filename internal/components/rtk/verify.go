@@ -11,6 +11,14 @@ var (
 	execCommand = exec.Command
 )
 
+// OverrideLookPath replaces the package-level lookPath function and returns
+// a restore function. Intended for tests in other packages.
+func OverrideLookPath(fn func(string) (string, error)) func() {
+	prev := lookPath
+	lookPath = fn
+	return func() { lookPath = prev }
+}
+
 // VerifyInstalled checks whether the rtk binary is available on PATH.
 func VerifyInstalled() error {
 	if _, err := lookPath("rtk"); err != nil {

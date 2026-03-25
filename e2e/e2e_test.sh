@@ -177,11 +177,11 @@ test_preset_minimal_components() {
 }
 
 test_preset_ecosystem_components() {
-    log_test "Preset ecosystem-only produces 5 components"
+    log_test "Preset ecosystem-only produces 6 components"
 
     output=$($BINARY install --preset ecosystem-only --agent claude-code --dry-run 2>&1) || true
 
-    # ecosystem-only = engram, sdd, skills, context7, gga
+    # ecosystem-only = engram, sdd, skills, context7, gga, rtk
     local components_line
     components_line=$(echo "$output" | grep "Components order:")
 
@@ -190,12 +190,13 @@ test_preset_ecosystem_components() {
     assert_output_contains "$components_line" "skills" "Ecosystem includes skills"
     assert_output_contains "$components_line" "context7" "Ecosystem includes context7"
     assert_output_contains "$components_line" "gga" "Ecosystem includes gga"
+    assert_output_contains "$components_line" "rtk" "Ecosystem includes rtk"
     assert_output_not_contains "$components_line" "persona" "Ecosystem excludes persona"
     assert_output_not_contains "$components_line" "permissions" "Ecosystem excludes permissions"
 }
 
 test_preset_full_components() {
-    log_test "Preset full-gentleman produces 7 components"
+    log_test "Preset full-gentleman produces 8 components"
 
     output=$($BINARY install --preset full-gentleman --agent claude-code --dry-run 2>&1) || true
 
@@ -209,6 +210,7 @@ test_preset_full_components() {
     assert_output_contains "$components_line" "persona" "Full includes persona"
     assert_output_contains "$components_line" "permissions" "Full includes permissions"
     assert_output_contains "$components_line" "gga" "Full includes gga"
+    assert_output_contains "$components_line" "rtk" "Full includes rtk"
 }
 
 test_preset_no_theme_in_any_preset() {
@@ -270,6 +272,12 @@ test_dry_run_component_theme() {
     log_test "Dry-run with --component theme"
     output=$($BINARY install --agent opencode --component theme --dry-run 2>&1) || true
     assert_output_contains "$output" "theme" "Shows theme component"
+}
+
+test_dry_run_component_rtk() {
+    log_test "Dry-run with --component rtk"
+    output=$($BINARY install --agent claude-code --component rtk --dry-run 2>&1) || true
+    assert_output_contains "$output" "rtk" "Shows rtk component"
 }
 
 # --- Category 1f2: SDD mode flag ---
@@ -1705,6 +1713,7 @@ test_dry_run_component_persona
 test_dry_run_component_permissions
 test_dry_run_component_gga
 test_dry_run_component_theme
+test_dry_run_component_rtk
 
 # Category 1f2: SDD mode flag
 test_dry_run_sdd_mode_multi

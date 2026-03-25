@@ -36,3 +36,31 @@ func TestVerifyVersion(t *testing.T) {
 		t.Fatalf("VerifyVersion() = %q, want %q", version, "rtk 0.28.2")
 	}
 }
+
+func TestVerifyVersionEmptyOutput(t *testing.T) {
+	originalCmd := execCommand
+	t.Cleanup(func() { execCommand = originalCmd })
+
+	// Simulate rtk --version returning empty output.
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("echo", "-n", "")
+	}
+	_, err := VerifyVersion()
+	if err == nil {
+		t.Fatalf("VerifyVersion() expected error for empty output")
+	}
+}
+
+func TestVerifyVersionCommandFailure(t *testing.T) {
+	originalCmd := execCommand
+	t.Cleanup(func() { execCommand = originalCmd })
+
+	// Simulate rtk --version failing (non-zero exit).
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("false")
+	}
+	_, err := VerifyVersion()
+	if err == nil {
+		t.Fatalf("VerifyVersion() expected error when command fails")
+	}
+}
