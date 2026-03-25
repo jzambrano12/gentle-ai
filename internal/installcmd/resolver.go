@@ -64,6 +64,8 @@ func (profileResolver) ResolveComponentInstall(profile system.PlatformProfile, c
 		return resolveEngramInstall(profile)
 	case model.ComponentGGA:
 		return resolveGGAInstall(profile)
+	case model.ComponentRTK:
+		return resolveRTKInstall(profile)
 	default:
 		return nil, fmt.Errorf("install command is not supported for component %q", component)
 	}
@@ -154,6 +156,30 @@ func resolveGGAInstall(profile system.PlatformProfile) (CommandSequence, error) 
 	default:
 		return nil, fmt.Errorf(
 			"unsupported platform for gga: os=%q distro=%q pm=%q",
+			profile.OS, profile.LinuxDistro, profile.PackageManager,
+		)
+	}
+}
+
+// resolveRTKInstall returns the correct install command sequence for RTK per platform.
+// - darwin: brew install rtk (RTK is in the default Homebrew registry)
+// - linux: curl install script
+// - windows: PowerShell install script
+func resolveRTKInstall(profile system.PlatformProfile) (CommandSequence, error) {
+	switch profile.PackageManager {
+	case "brew":
+		return CommandSequence{{"brew", "install", "rtk"}}, nil
+	case "apt", "pacman", "dnf":
+		return CommandSequence{
+			{"sh", "-c", "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh"},
+		}, nil
+	case "winget":
+		return CommandSequence{
+			{"powershell", "-NoProfile", "-Command", "irm https://raw.githubusercontent.com/rtk-ai/rtk/master/install.ps1 | iex"},
+		}, nil
+	default:
+		return nil, fmt.Errorf(
+			"unsupported platform for rtk: os=%q distro=%q pm=%q",
 			profile.OS, profile.LinuxDistro, profile.PackageManager,
 		)
 	}

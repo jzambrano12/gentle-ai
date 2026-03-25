@@ -18,6 +18,7 @@ import (
 	"github.com/gentleman-programming/gentle-ai/internal/components/persona"
 	"github.com/gentleman-programming/gentle-ai/internal/components/sdd"
 	"github.com/gentleman-programming/gentle-ai/internal/components/skills"
+	"github.com/gentleman-programming/gentle-ai/internal/components/rtk"
 	"github.com/gentleman-programming/gentle-ai/internal/components/theme"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
 	"github.com/gentleman-programming/gentle-ai/internal/pipeline"
@@ -135,6 +136,9 @@ func RunInstall(args []string, detection system.DetectionResult) (InstallResult,
 func withPostInstallNotes(report verify.Report, resolved planner.ResolvedPlan) verify.Report {
 	if hasComponent(resolved.OrderedComponents, model.ComponentGGA) && report.Ready {
 		report.FinalNote = report.FinalNote + "\n\nGGA is now installed globally. To enable project hooks, run in each repo:\n- gga init\n- gga install"
+	}
+	if hasComponent(resolved.OrderedComponents, model.ComponentRTK) && report.Ready {
+		report.FinalNote = report.FinalNote + "\n\nRTK is now active. Token compression is enabled for configured agents.\nRun `rtk gain` to monitor token savings."
 	}
 	report = withGoInstallPathNote(report, resolved)
 	return report
@@ -521,6 +525,33 @@ func (s componentApplyStep) Run() error {
 			}
 		}
 		return nil
+	case model.ComponentRTK:
+		if _, err := cmdLookPath("rtk"); err != nil {
+			commands, installErr := rtk.InstallCommand(s.profile)
+			if installErr != nil {
+				return fmt.Errorf("resolve install command for component %q: %w", s.component, installErr)
+			}
+			if err := runCommandSequence(commands); err != nil {
+				return err
+			}
+		}
+		globalInitDone := false
+		for _, adapter := range adapters {
+			args, ok := rtk.AgentInitArgs(adapter.Agent())
+			if !ok {
+				continue
+			}
+			if rtk.IsGlobalInit(args) {
+				if globalInitDone {
+					continue
+				}
+				globalInitDone = true
+			}
+			if err := runCommand("rtk", args...); err != nil {
+				return fmt.Errorf("rtk init for %q: %w", adapter.Agent(), err)
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("component %q is not supported in install runtime", s.component)
 	}
@@ -791,6 +822,10 @@ func componentPaths(homeDir string, selection model.Selection, adapters []agents
 			if p := adapter.SettingsPath(homeDir); p != "" {
 				paths = append(paths, p)
 			}
+		case model.ComponentRTK:
+			// RTK manages its own hook files via `rtk init`. gentle-ai does
+			// not write RTK configs directly, so no paths to track for backup
+			// or verification.
 		}
 	}
 
@@ -819,6 +854,10 @@ func runPostApplyVerification(homeDir string, selection model.Selection, resolve
 
 	if hasComponent(resolved.OrderedComponents, model.ComponentEngram) {
 		checks = append(checks, engramHealthChecks()...)
+	}
+
+	if hasComponent(resolved.OrderedComponents, model.ComponentRTK) {
+		checks = append(checks, rtkHealthChecks()...)
 	}
 
 	return verify.BuildReport(verify.RunChecks(context.Background(), checks))
@@ -856,6 +895,31 @@ func engramHealthChecks() []verify.Check {
 					return nil
 				}
 				_, err := engram.VerifyVersion()
+				return err
+			},
+		},
+	}
+}
+
+func rtkHealthChecks() []verify.Check {
+	return []verify.Check{
+		{
+			ID:          "verify:rtk:binary",
+			Description: "rtk binary on PATH",
+			Soft:        true,
+			Run: func(context.Context) error {
+				return rtk.VerifyInstalled()
+			},
+		},
+		{
+			ID:          "verify:rtk:version",
+			Description: "rtk version returns valid output",
+			Soft:        true,
+			Run: func(context.Context) error {
+				if err := rtk.VerifyInstalled(); err != nil {
+					return nil
+				}
+				_, err := rtk.VerifyVersion()
 				return err
 			},
 		},

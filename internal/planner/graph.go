@@ -43,5 +43,6 @@ func MVPGraph() Graph {
 		model.ComponentPermission: nil,
 		model.ComponentGGA:        nil,
 		model.ComponentTheme:      nil,
+		model.ComponentRTK:        nil,
 	})
 }

@@ -146,13 +146,14 @@ func TestBuildSyncSelectionDefaultScopeIncludesManagedComponents(t *testing.T) {
 
 	sel := BuildSyncSelection(flags, agents)
 
-	// Default sync must include: SDD, Engram, Context7, GGA, Skills
+	// Default sync must include: SDD, Engram, Context7, GGA, Skills, RTK
 	mandatoryComponents := []model.ComponentID{
 		model.ComponentSDD,
 		model.ComponentEngram,
 		model.ComponentContext7,
 		model.ComponentGGA,
 		model.ComponentSkills,
+		model.ComponentRTK,
 	}
 
 	for _, want := range mandatoryComponents {

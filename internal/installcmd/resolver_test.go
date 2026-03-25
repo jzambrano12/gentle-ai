@@ -501,6 +501,24 @@ func TestResolveComponentInstall(t *testing.T) {
 			},
 		},
 		{
+			name:      "rtk on darwin uses brew install",
+			profile:   system.PlatformProfile{OS: "darwin", PackageManager: "brew"},
+			component: model.ComponentRTK,
+			want:      CommandSequence{{"brew", "install", "rtk"}},
+		},
+		{
+			name:      "rtk on ubuntu uses curl install script",
+			profile:   system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt"},
+			component: model.ComponentRTK,
+			want:      CommandSequence{{"sh", "-c", "curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh"}},
+		},
+		{
+			name:      "rtk on windows uses powershell install script",
+			profile:   system.PlatformProfile{OS: "windows", PackageManager: "winget"},
+			component: model.ComponentRTK,
+			want:      CommandSequence{{"powershell", "-NoProfile", "-Command", "irm https://raw.githubusercontent.com/rtk-ai/rtk/master/install.ps1 | iex"}},
+		},
+		{
 			name:      "unsupported component returns error",
 			profile:   system.PlatformProfile{OS: "darwin", PackageManager: "brew"},
 			component: "unsupported",

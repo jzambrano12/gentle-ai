@@ -17,6 +17,7 @@ import (
 	"github.com/gentleman-programming/gentle-ai/internal/components/permissions"
 	"github.com/gentleman-programming/gentle-ai/internal/components/sdd"
 	"github.com/gentleman-programming/gentle-ai/internal/components/skills"
+	"github.com/gentleman-programming/gentle-ai/internal/components/rtk"
 	"github.com/gentleman-programming/gentle-ai/internal/components/theme"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
 	"github.com/gentleman-programming/gentle-ai/internal/pipeline"
@@ -91,6 +92,7 @@ func BuildSyncSelection(flags SyncFlags, agentIDs []model.AgentID) model.Selecti
 		model.ComponentContext7,
 		model.ComponentGGA,
 		model.ComponentSkills,
+		model.ComponentRTK,
 	}
 
 	if flags.IncludePermissions {
@@ -328,6 +330,31 @@ func (s componentSyncStep) Run() error {
 				return fmt.Errorf("sync theme for %q: %w", adapter.Agent(), err)
 			}
 			s.countChanged(boolToInt(res.Changed))
+		}
+		return nil
+
+	case model.ComponentRTK:
+		// Sync: re-run rtk init to ensure hooks are current (idempotent).
+		// Skip if rtk binary is not installed (no binary install in sync).
+		if err := rtk.VerifyInstalled(); err != nil {
+			return nil
+		}
+		globalInitDone := false
+		for _, adapter := range adapters {
+			args, ok := rtk.AgentInitArgs(adapter.Agent())
+			if !ok {
+				continue
+			}
+			if rtk.IsGlobalInit(args) {
+				if globalInitDone {
+					continue
+				}
+				globalInitDone = true
+			}
+			if err := runCommand("rtk", args...); err != nil {
+				return fmt.Errorf("sync rtk for %q: %w", adapter.Agent(), err)
+			}
+			s.countChanged(1)
 		}
 		return nil
 

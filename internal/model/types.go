@@ -33,6 +33,7 @@ const (
 	ComponentPermission ComponentID = "permissions"
 	ComponentGGA        ComponentID = "gga"
 	ComponentTheme      ComponentID = "theme"
+	ComponentRTK        ComponentID = "rtk"
 )
 
 type SkillID string
